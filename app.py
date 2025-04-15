@@ -1,18 +1,18 @@
 
-# Secure Data Vault App
-import streamlit as st
-import hashlib
-import time
-import uuid
-import json
-import os
-import base64
-from cryptography.fernet import Fernet
-import streamlit.components.v1 as components
+# --- Imports ---
+import streamlit as st  # For building the web interface
+import hashlib          # For password hashing
+import time             # For timestamps (created_at, last_login)
+import uuid             # For generating unique IDs
+import json             # For reading/writing user data
+import os               # For checking file existence
+import base64           # For encoding keys securely
+from cryptography.fernet import Fernet  # For encryption and decryption
+import streamlit.components.v1 as components  # For rendering custom HTML (footer animation)
 
 # --- Helper Functions ---
 
-# Ye function saved data ko load karta hai JSON file se
+# Load user data from local JSON file (data.json)
 def load_data():
     if os.path.exists("data.json"):
         with open("data.json", "r") as f:
@@ -21,44 +21,42 @@ def load_data():
                 return data
     return {}
 
-# Ye function data ko save karta hai JSON file mein
+# Save user data back to data.json
 def save_data(data):
     with open("data.json", "w") as f:
         json.dump(data, f)
 
-# Password ko securely hash karta hai salt ke saath
+# Secure password hashing using PBKDF2 (Password-Based Key Derivation Function 2)
 def hash_passkey(passkey, salt):
     return hashlib.pbkdf2_hmac("sha256", passkey.encode(), salt.encode(), 100000).hex()
 
-# Unique salt generate karta hai
+# Generate a unique salt using UUID
 def generate_salt():
     return str(uuid.uuid4())
 
-# Passkey aur salt se fernet key generate karta hai (encryption key)
+# Generate a Fernet key from user passkey and salt using PBKDF2
 def generate_fernet_key_from_passkey(passkey, salt):
     key = hashlib.pbkdf2_hmac("sha256", passkey.encode(), salt.encode(), 100000)
     return Fernet(base64.urlsafe_b64encode(key[:32]))
 
-# Data ko encrypt karta hai
+# Encrypt the given data using the provided key
 def encrypt_data(data, key):
     cipher = Fernet(key)
     return cipher.encrypt(data.encode()).decode()
 
-# Data ko decrypt karta hai
+# Decrypt the encrypted data using the provided key
 def decrypt_data(data, key):
     cipher = Fernet(key)
     return cipher.decrypt(data.encode()).decode()
 
-# --- Pages ---
-
-# Logout function
+# --- User Logout ---
 def logout():
     st.session_state.authorized = False
     st.session_state.current_user = ""
     st.session_state.page = "register"
     st.success("You have been logged out!")
 
-# Registration page
+# --- Registration Page ---
 def register_page():
     st.title("🔐 Secure Data Vault Registration")
     username = st.text_input("Username")
@@ -73,6 +71,7 @@ def register_page():
         elif len(password) < 8:
             st.error("Password must be at least 8 characters")
         else:
+            # All validations passed, register user
             salt = generate_salt()
             hashed_pass = hash_passkey(password, salt)
             fernet_key = Fernet.generate_key().decode()
@@ -86,10 +85,11 @@ def register_page():
                 "last_login": None
             }
             save_data(st.session_state.data_store)
-            st.success("Registration successful! Please log in.")
+            st.success("Registration successful! Redirecting to login...")
             st.session_state.page = "login"
+            st.rerun()  # 👈 Move to login page
 
-# Login page
+# --- Login Page ---
 def login_page():
     st.title("🔐 Secure Data Vault Login")
     username = st.text_input("Username")
@@ -102,18 +102,20 @@ def login_page():
             hashed_pass = hash_passkey(password, salt)
 
             if hashed_pass == users[username]["password"]:
+                # Login successful
                 st.session_state.authorized = True
                 st.session_state.current_user = username
                 st.session_state.page = "home"
                 st.session_state.data_store[username]["last_login"] = time.strftime("%Y-%m-%d %H:%M:%S")
                 save_data(st.session_state.data_store)
-                st.success("Login successful!")
+                st.success("Login successful! Redirecting to dashboard...")
+                st.rerun()
             else:
                 st.error("Incorrect password")
         else:
             st.error("Username not found")
 
-# Page to store encrypted data
+# --- Store Encrypted Data ---
 def store_data_page():
     if not st.session_state.authorized:
         st.warning("Please login to access this page.")
@@ -155,7 +157,7 @@ def store_data_page():
         except Exception as e:
             st.error(f"Encryption error: {e}")
 
-# Page to retrieve data
+# --- Retrieve Encrypted Data ---
 def retrieve_data_page():
     if not st.session_state.authorized:
         st.warning("Please login to access this page.")
@@ -188,7 +190,7 @@ def retrieve_data_page():
             except Exception as e:
                 st.error(f"Decryption failed: {e}")
 
-# User profile page
+# --- User Profile Info ---
 def profile_page():
     if not st.session_state.authorized:
         st.warning("Please login.")
@@ -205,7 +207,7 @@ def profile_page():
     **Stored Entries:** {len(data["entries"])}
     """)
 
-# Dashboard help/tips
+# --- Dashboard Tips ---
 def dashboard_tips():
     st.markdown("### 📊 Dashboard Tips")
     st.markdown("""
@@ -214,7 +216,7 @@ def dashboard_tips():
     - 👤 Check your profile info anytime  
     """)
 
-# Footer animation
+# --- Footer Animation ---
 def footer_animation():
     footer_html = """
     <style>
@@ -239,8 +241,9 @@ def footer_animation():
     """
     components.html(footer_html, height=50)
 
-# --- Main App ---
+# --- Main Application Controller ---
 def main():
+    # Initialize session state
     if "data_store" not in st.session_state:
         st.session_state.data_store = load_data()
     if "authorized" not in st.session_state:
@@ -251,11 +254,13 @@ def main():
         st.session_state.page = "register"
 
     if not st.session_state.authorized:
+        # Show either register or login page
         if st.session_state.page == "register":
             register_page()
         else:
             login_page()
     else:
+        # After login, show sidebar and route to selected pages
         st.sidebar.title(f"Welcome, {st.session_state.current_user}")
         if st.sidebar.button("🏠 Dashboard"):
             st.session_state.page = "home"
@@ -268,6 +273,7 @@ def main():
         if st.sidebar.button("🚪 Logout"):
             logout()
 
+        # Show selected page content
         if st.session_state.page == "home":
             st.title("🔐 Secure Data Vault Dashboard")
             dashboard_tips()
@@ -278,14 +284,7 @@ def main():
         elif st.session_state.page == "profile":
             profile_page()
 
-    footer_animation()  # 👑 Show footer with animation
+    footer_animation()
 
 if __name__ == "__main__":
     main()
-
-
-
-
-
-
-
